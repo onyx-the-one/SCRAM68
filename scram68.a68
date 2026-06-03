@@ -1,0 +1,281 @@
+BEGIN
+  MODE WORD = BITS;
+  BITS mask32 := 16rffffffff;
+
+  OP + = (WORD a, b) WORD: BIN ((ABS a + ABS b) MOD 4294967296);
+  PROC w32 = (WORD a) WORD: a AND mask32;
+  PROC rotl = (WORD a, INT n) WORD: w32((w32(a) SHL n) OR (w32(a) SHR (32 - n)));
+  PROC rotr = (WORD a, INT n) WORD: w32((w32(a) SHR n) OR (w32(a) SHL (32 - n)));
+
+  MODE SHA = STRUCT([0:7] WORD h, INT ctr, [1:64] CHAR buf);
+  MODE HMAC = STRUCT(SHA in, SHA out);
+
+  PROC pk_le = (STRING b, INT i) WORD:
+    w32(BIN ABS b[i] OR (BIN ABS b[i+1] SHL 8) OR (BIN ABS b[i+2] SHL 16) OR (BIN ABS b[i+3] SHL 24));
+  PROC pk_be = (STRING b, INT i) WORD:
+    w32((BIN ABS b[i] SHL 24) OR (BIN ABS b[i+1] SHL 16) OR (BIN ABS b[i+2] SHL 8) OR BIN ABS b[i+3]);
+
+  PROC upk_le = (WORD w, REF STRING b, INT i) VOID:
+  BEGIN
+    b[i]   := REPR ABS (w AND BIN 255);
+    b[i+1] := REPR ABS (w32(w SHR 8) AND BIN 255);
+    b[i+2] := REPR ABS (w32(w SHR 16) AND BIN 255);
+    b[i+3] := REPR ABS (w32(w SHR 24) AND BIN 255)
+  END;
+
+  PROC upk_be = (WORD w, REF STRING b, INT i) VOID:
+  BEGIN
+    b[i+3] := REPR ABS (w AND BIN 255);
+    b[i+2] := REPR ABS (w32(w SHR 8) AND BIN 255);
+    b[i+1] := REPR ABS (w32(w SHR 16) AND BIN 255);
+    b[i]   := REPR ABS (w32(w SHR 24) AND BIN 255)
+  END;
+
+  PROC hex_enc = (STRING dat) STRING:
+  BEGIN
+    STRING hx := "0123456789abcdef";
+    STRING out := "";
+    FOR i FROM 1 TO UPB dat DO
+      INT b := ABS dat[i];
+      out +:= hx[(b OVER 16) + 1];
+      out +:= hx[(b MOD 16) + 1]
+    OD;
+    out
+  END;
+
+  PROC hex_dec = (STRING hx) STRING:
+  BEGIN
+    PROC nib = (CHAR c) INT:
+      IF c >= "0" AND c <= "9" THEN ABS c - ABS "0"
+      ELSE ABS c - ABS "a" + 10
+      FI;
+    STRING out := "";
+    FOR i FROM 1 BY 2 TO UPB hx - 1 DO
+      out +:= REPR (nib(hx[i]) * 16 + nib(hx[i+1]))
+    OD;
+    out
+  END;
+
+  PROC ch = (WORD x, y, z) WORD: (x AND y) XOR (NOT x AND z);
+  PROC maj = (WORD x, y, z) WORD: (x AND y) XOR (x AND z) XOR (y AND z);
+  PROC bs0 = (WORD x) WORD: rotr(x, 2) XOR rotr(x, 13) XOR rotr(x, 22);
+  PROC bs1 = (WORD x) WORD: rotr(x, 6) XOR rotr(x, 11) XOR rotr(x, 25);
+  PROC ls0 = (WORD x) WORD: rotr(x, 7) XOR rotr(x, 18) XOR w32(x SHR 3);
+  PROC ls1 = (WORD x) WORD: rotr(x, 17) XOR rotr(x, 19) XOR w32(x SHR 10);
+
+  []WORD k_sha = (
+	    16r428a2f98, 16r71374491, 16rb5c0fbcf, 16re9b5dba5, 16r3956c25b, 16r59f111f1, 16r923f82a4, 16rab1c5ed5,
+    16rd807aa98, 16r12835b01, 16r243185be, 16r550c7dc3, 16r72be5d74, 16r80deb1fe, 16r9bdc06a7, 16rc19bf174,
+    16re49b69c1, 16refbe4786, 16r0fc19dc6, 16r240ca1cc, 16r2de92c6f, 16r4a7484aa, 16r5cb0a9dc, 16r76f988da,
+    16r983e5152, 16ra831c66d, 16rb00327c8, 16rbf597fc7, 16rc6e00bf3, 16rd5a79147, 16r06ca6351, 16r14292967,
+    16r27b70a85, 16r2e1b2138, 16r4d2c6dfc, 16r53380d13, 16r650a7354, 16r766a0abb, 16r81c2c92e, 16r92722c85,
+    16ra2bfe8a1, 16ra81a664b, 16rc24b8b70, 16rc76c51a3, 16rd192e819, 16rd6990624, 16rf40e3585, 16r106aa070,
+    16r19a4c116, 16r1e376c08, 16r2748774c, 16r34b0bcb5, 16r391c0cb3, 16r4ed8aa4a, 16r5b9cca4f, 16r682e6ff3,
+    16r748f82ee, 16r78a5636f, 16r84c87814, 16r8cc70208, 16r90befffa, 16ra4506ceb, 16rbef9a3f7, 16rc67178f2
+  );
+
+  PROC s256_init = (REF SHA ctx) VOID:
+  BEGIN
+    (h OF ctx)[0] := 16r6a09e667; (h OF ctx)[1] := 16rbb67ae85;
+    (h OF ctx)[2] := 16r3c6ef372; (h OF ctx)[3] := 16ra54ff53a;
+    (h OF ctx)[4] := 16r510e527f; (h OF ctx)[5] := 16r9b05688c;
+    (h OF ctx)[6] := 16r1f83d9ab; (h OF ctx)[7] := 16r5be0cd19;
+    ctr OF ctx := 0
+  END;
+
+  PROC s256_xfrm = (REF SHA ctx) VOID:
+  BEGIN
+    [1:64] WORD w;
+    FOR i FROM 1 TO 16 DO w[i] := pk_be(buf OF ctx, (i-1)*4 + 1) OD;
+    FOR i FROM 17 TO 64 DO w[i] := ls1(w[i-2]) + w[i-7] + ls0(w[i-15]) + w[i-16] OD;
+    WORD a := (h OF ctx)[0], b := (h OF ctx)[1], c := (h OF ctx)[2], d := (h OF ctx)[3];
+    WORD e := (h OF ctx)[4], f := (h OF ctx)[5], g := (h OF ctx)[6], v := (h OF ctx)[7];
+    FOR i FROM 1 TO 64 DO
+      WORD t1 := v + bs1(e) + ch(e, f, g) + k_sha[i] + w[i];
+      WORD t2 := bs0(a) + maj(a, b, c);
+      v := g; g := f; f := e; e := d + t1;
+      d := c; c := b; b := a; a := t1 + t2
+    OD;
+    (h OF ctx)[0] := (h OF ctx)[0] + a; (h OF ctx)[1] := (h OF ctx)[1] + b;
+    (h OF ctx)[2] := (h OF ctx)[2] + c; (h OF ctx)[3] := (h OF ctx)[3] + d;
+    (h OF ctx)[4] := (h OF ctx)[4] + e; (h OF ctx)[5] := (h OF ctx)[5] + f;
+    (h OF ctx)[6] := (h OF ctx)[6] + g; (h OF ctx)[7] := (h OF ctx)[7] + v
+  END;
+
+  PROC s256_up = (REF SHA ctx, STRING data) VOID:
+  BEGIN
+    FOR i FROM 1 TO UPB data DO
+      (buf OF ctx)[(ctr OF ctx MOD 64) + 1] := data[i];
+      ctr OF ctx +:= 1;
+      IF ctr OF ctx MOD 64 = 0 THEN s256_xfrm(ctx) FI
+    OD
+  END;
+
+  PROC s256_fin = (REF SHA ctx) STRING:
+  BEGIN
+    WORD b_len := BIN (ctr OF ctx * 8);
+    s256_up(ctx, REPR ABS 16r80);
+    WHILE ctr OF ctx MOD 64 /= 56 DO s256_up(ctx, REPR 0) OD;
+    s256_up(ctx, REPR 0); s256_up(ctx, REPR 0);
+    s256_up(ctx, REPR 0); s256_up(ctx, REPR 0);
+    s256_up(ctx, REPR ABS (w32(b_len SHR 24) AND BIN 255));
+    s256_up(ctx, REPR ABS (w32(b_len SHR 16) AND BIN 255));
+    s256_up(ctx, REPR ABS (w32(b_len SHR 8) AND BIN 255));
+    s256_up(ctx, REPR ABS (b_len AND BIN 255));
+    STRING out := "12345678123456781234567812345678";
+    FOR i FROM 0 TO 7 DO upk_be((h OF ctx)[i], out, i*4 + 1) OD;
+    out
+  END;
+
+  PROC sum256 = (STRING data) STRING:
+  BEGIN SHA ctx; s256_init(ctx); s256_up(ctx, data); s256_fin(ctx) END;
+
+  PROC hmac_init = (REF HMAC ctx, STRING k_in) VOID:
+  BEGIN
+    STRING k := k_in;
+    IF UPB k > 64 THEN k := sum256(k) FI;
+    WHILE UPB k < 64 DO k +:= REPR 0 OD;
+    STRING ip := "", op := "";
+    FOR i FROM 1 TO 64 DO
+      ip +:= REPR ABS (BIN ABS k[i] XOR 16r36);
+      op +:= REPR ABS (BIN ABS k[i] XOR 16r5c)
+    OD;
+    s256_init(in OF ctx); s256_up(in OF ctx, ip);
+    s256_init(out OF ctx); s256_up(out OF ctx, op)
+  END;
+
+  PROC hmac_up = (REF HMAC ctx, STRING data) VOID: s256_up(in OF ctx, data);
+  PROC hmac_fin = (REF HMAC ctx) STRING:
+  BEGIN
+    STRING hv := s256_fin(in OF ctx);
+    s256_up(out OF ctx, hv);
+    s256_fin(out OF ctx)
+  END;
+
+  PROC qround = (REF WORD a, b, c, d) VOID:
+  BEGIN
+    a := w32(a + b); d := w32(d XOR a); d := rotl(d, 16);
+    c := w32(c + d); b := w32(b XOR c); b := rotl(b, 12);
+    a := w32(a + b); d := w32(d XOR a); d := rotl(d, 8);
+    c := w32(c + d); b := w32(b XOR c); b := rotl(b, 7)
+  END;
+
+  PROC chacha = ([]WORD k_in, WORD ctr, []WORD non) []WORD:
+  BEGIN
+    [0:15] WORD st, init;
+    init[0] := 16r61707865; init[1] := 16r3320646e;
+    init[2] := 16r79622d32; init[3] := 16r6b206574;
+    FOR i FROM 0 TO 7 DO init[4+i] := w32(k_in[i+1]) OD;
+    init[12] := w32(ctr);
+    init[13] := w32(non[1]); init[14] := w32(non[2]); init[15] := w32(non[3]);
+    st := init;
+    FOR i FROM 1 TO 10 DO
+      qround(st[0], st[4], st[8], st[12]); qround(st[1], st[5], st[9], st[13]);
+      qround(st[2], st[6], st[10], st[14]); qround(st[3], st[7], st[11], st[15]);
+      qround(st[0], st[5], st[10], st[15]); qround(st[1], st[6], st[11], st[12]);
+      qround(st[2], st[7], st[8], st[13]); qround(st[3], st[4], st[9], st[14])
+    OD;
+    FOR i FROM 0 TO 15 DO st[i] := w32(st[i] + init[i]) OD;
+    st
+  END;
+
+  PROC get_rand = (INT n) STRING:
+  BEGIN
+    INT seed := ABS (ENTIER (clock * 1000000) MOD 2147483648);
+    STRING out := "";
+    FOR iter FROM 1 TO n DO
+      seed := ABS ((seed * 1103515245 + 12345) MOD 2147483648);
+      out +:= REPR (seed MOD 256)
+    OD;
+    out
+  END;
+
+  PROC read_txt = (STRING p) STRING:
+  BEGIN
+    FILE f; IF open(f, p, stand in channel) /= 0 THEN
+      print(("Error: cannot open ", p, new line)); stop
+    FI;
+    STRING out := "";
+    on logical file end(f, (REF FILE file)BOOL: GO TO rd_done);
+    DO CHAR c; get(f, (c)); out +:= c OD;
+    rd_done: close(f);
+    IF UPB out > 0 AND ABS out[UPB out] = 0 THEN out := out[1:UPB out - 1] FI;
+    out
+  END;
+
+  PROC write_txt = (STRING p, d) VOID:
+  BEGIN
+    FILE f; IF establish(f, p, stand out channel) /= 0 THEN
+      print(("Error: cannot establish ", p, new line)); stop
+    FI;
+    put(f, (d));
+    close(f);
+    print(("Done.", new line))
+  END;
+
+  IF argc < 7 THEN
+    print(("usage: a68g scram68.a68 -- <-e|-d> <pass> <in> <out>", new line)); stop
+  FI;
+
+  STRING mode := argv(4), pass := argv(5), f_in := argv(6), f_out := argv(7);
+  STRING key := sum256(pass);
+  [1:8] WORD ch_k;
+  FOR i FROM 1 TO 8 DO ch_k[i] := pk_le(key, (i-1)*4 + 1) OD;
+
+  IF mode = "-e" THEN
+    STRING n := get_rand(12);
+    STRING raw := read_txt(f_in);
+    HMAC mac; hmac_init(mac, key);
+    hmac_up(mac, "CHCA" + n);
+    [1:3] WORD ch_n; FOR i FROM 1 TO 3 DO ch_n[i] := pk_le(n, (i-1)*4 + 1) OD;
+    WORD ctr := 16r00000001;
+    STRING ct := "";
+    STRING kb := "1234567812345678123456781234567812345678123456781234567812345678";
+    INT p := 1;
+    WHILE p <= UPB raw DO
+      []WORD ks = chacha(ch_k, ctr, ch_n);
+      ctr := w32(BIN (ABS ctr + 1));
+      FOR i FROM 0 TO 15 DO upk_le(ks[i], kb, i*4 + 1) OD;
+      INT chunk := 64; IF UPB raw - p + 1 < 64 THEN chunk := UPB raw - p + 1 FI;
+      FOR i FROM 1 TO chunk DO
+        ct +:= REPR ABS (BIN ABS raw[p+i-1] XOR BIN ABS kb[i])
+      OD;
+      p +:= chunk
+    OD;
+    hmac_up(mac, ct);
+    STRING t := hmac_fin(mac);
+    # hex-encode all binary fields to survive text channel transput #
+    write_txt(f_out, "CHCA" + hex_enc(n) + hex_enc(ct) + hex_enc(t))
+
+  ELIF mode = "-d" THEN
+    STRING raw := read_txt(f_in);
+    IF UPB raw < 4 THEN print(("Input file too small.", new line)); stop FI;
+    IF raw[1:4] /= "CHCA" THEN print(("Invalid CHCA header.", new line)); stop FI;
+    # layout: "CHCA"(4) + hex_nonce(24) + hex_ct(2*N) + hex_tag(64) #
+    IF UPB raw < 92 THEN print(("Input file too small.", new line)); stop FI;
+    STRING n   := hex_dec(raw[5:28]);
+    STRING ct  := hex_dec(raw[29:UPB raw - 64]);
+    STRING tag := hex_dec(raw[UPB raw - 63 : UPB raw]);
+    HMAC mac; hmac_init(mac, key);
+    hmac_up(mac, "CHCA" + n); hmac_up(mac, ct);
+    IF hmac_fin(mac) /= tag THEN print(("MAC verification failed.", new line)); stop FI;
+    [1:3] WORD ch_n; FOR i FROM 1 TO 3 DO ch_n[i] := pk_le(n, (i-1)*4 + 1) OD;
+    WORD ctr := 16r00000001;
+    STRING pt := "";
+    STRING kb := "1234567812345678123456781234567812345678123456781234567812345678";
+    INT p := 1;
+    WHILE p <= UPB ct DO
+      []WORD ks = chacha(ch_k, ctr, ch_n);
+      ctr := w32(BIN (ABS ctr + 1));
+      FOR i FROM 0 TO 15 DO upk_le(ks[i], kb, i*4 + 1) OD;
+      INT chunk := 64; IF UPB ct - p + 1 < 64 THEN chunk := UPB ct - p + 1 FI;
+      FOR i FROM 1 TO chunk DO
+        pt +:= REPR ABS (BIN ABS ct[p+i-1] XOR BIN ABS kb[i])
+      OD;
+      p +:= chunk
+    OD;
+    write_txt(f_out, pt)
+  ELSE
+    print(("Unknown mode flag. Use -e or -d.", new line))
+  FI
+END
