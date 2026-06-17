@@ -1,19 +1,46 @@
 # SCRAM68
 **Stream Cipher Routine for Algol Machines**
 
-SCRAM68 is a transput utility for the encipherment and authentication of sequential data sets. Written in **ALGOL 68 (Revised Report)**, it implements a 256-bit ChaCha stream cipher coupled with an HMAC-SHA256 integrity check.
+SCRAM68 is a file encryption utility written in **ALGOL 68** for use with **Algol 68 Genie**. It combines a 256-bit ChaCha-style stream cipher with an HMAC-SHA256 integrity check.
 
 ## Synopsis
 
 ```sh
-a68g scram68.a68 <-e|-d> <passphrase> <in_file> <out_file>
+a68g scram68.a68 -- <-e|-d> <passphrase> <in_file> <out_file>
 ```
 
-* **`-e`** : Encipher data set (yields `CHCA` header + ciphertext + MAC)
-* **`-d`** : Decipher and verify data set
+- `-e` — Encrypt a file.
+- `-d` — Decrypt a file and verify its MAC.
 
-## Notes on Operation
+## Output format
 
-1. **Entropy:** The supervisor must permit read access to `/dev/urandom` for initialization vectors.
-2. **Core Memory:** Allocation is currently proportional to the input data set size. Caution is advised when processing large spools.
-3. **Transput:** Ensure 8-bit byte transput capabilities on the host terminal.
+Encrypted files are written as text-safe output in this form:
+
+```text
+CHCA + hex(nonce) + hex(ciphertext) + hex(tag)
+```
+
+- `CHCA` is the file marker.
+- `nonce` is 12 bytes, hex-encoded to 24 characters.
+- `ciphertext` is hex-encoded.
+- `tag` is the 32-byte HMAC-SHA256 output, hex-encoded to 64 characters.
+
+This format is used because plain ALGOL 68 text transput does not safely preserve arbitrary binary bytes [file:122].
+
+## Notes
+
+- The program currently derives the encryption key as `SHA-256(passphrase)` [file:122].
+- Nonces are generated internally with `get_rand(12)` [file:122].
+- The entire input file is currently read into memory before encryption or decryption [file:122].
+- Decryption aborts if MAC verification fails [file:122].
+
+## Examples
+
+```sh
+a68g scram68.a68 -- -e hunter2 plain.txt secret.scram
+a68g scram68.a68 -- -d hunter2 secret.scram recovered.txt
+```
+
+## Challenge
+
+A sample encrypted challenge file is included separately.

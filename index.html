@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SCRAM68</title>
+  <style>
+    body { max-width: 860px; margin: 40px auto; padding: 0 20px; font: 16px/1.6 system-ui, sans-serif; color: #111; background: #fafafa; }
+    h1, h2 { line-height: 1.2; }
+    pre, code { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
+    pre { background: #111; color: #f5f5f5; padding: 14px; overflow-x: auto; border-radius: 8px; }
+    .box { background: white; border: 1px solid #ddd; border-radius: 10px; padding: 18px; margin: 20px 0; }
+    .muted { color: #555; }
+  </style>
+</head>
+<body>
+  <h1>SCRAM68</h1>
+  <p class="muted">Stream Cipher Routine for Algol Machines.</p>
+
+  <div class="box">
+    <h2>About</h2>
+    <p>
+      SCRAM68 is a small file encryption utility written in ALGOL 68 for Algol 68 Genie.
+      It uses a 256-bit ChaCha-style stream cipher and an HMAC-SHA256 integrity check.
+    </p>
+  </div>
+
+  <div class="box">
+    <h2>Usage</h2>
+    <pre><code>a68g scram68.a68 -- -e &lt;passphrase&gt; &lt;in_file&gt; &lt;out_file&gt;
+a68g scram68.a68 -- -d &lt;passphrase&gt; &lt;in_file&gt; &lt;out_file&gt;</code></pre>
+    <p>
+      Encrypted output is text-safe and formatted as:
+    </p>
+    <pre><code>CHCA + hex(nonce) + hex(ciphertext) + hex(tag)</code></pre>
+  </div>
+
+  <div class="box">
+    <h2>Notes</h2>
+    <ul>
+      <li>Key derivation is currently SHA-256 of the passphrase.</li>
+      <li>The nonce is generated internally.</li>
+      <li>The whole file is buffered in memory.</li>
+      <li>Decryption fails if MAC verification fails.</li>
+    </ul>
+  </div>
+
+  <div class="box">
+    <h2>Challenge</h2>
+    <p>
+      A sample encrypted challenge file is part of the project.
+    </p>
+    <p>
+      If you want to try cracking it, grab the ciphertext file and the source and have fun.
+    </p>
+  </div>
+
+  <div class="box">
+    <h2>Files</h2>
+    <ul>
+      <li><code>scram68.a68</code> — source.</li>
+      <li><code>README.md</code> — project notes.</li>
+      <li><code>challenge-crypt.txt</code> — encrypted challenge file.</li>
+    </ul>
+  </div>
+</body>
+</html>
