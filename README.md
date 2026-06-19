@@ -7,13 +7,13 @@ SCRAM68 is a file encryption utility written in **ALGOL 68** for use with **Algo
 
 Install Algol 68 Genie...
 For example:
-'''sh 
+```sh 
 sudo apt install algol68g
-'''
+```
 or :
-'''sh 
+```sh 
 sudo dnf install algol68g
-'''
+```
 then run with:
 
 ```sh
